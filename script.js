@@ -132,7 +132,7 @@ async function generateAndRunTests() {
         generatedCode.value = code;
         generatedTestCode = code;
         
-        // Create test case containers (avoid duplicates)
+        // Create test case containers and count unique test IDs
         const processedIds = new Set();
         testCases.forEach(testCase => {
             if (testCase.ID && !processedIds.has(testCase.ID)) {
@@ -142,9 +142,24 @@ async function generateAndRunTests() {
             }
         });
 
+        // Update total tests count
+        document.getElementById('totalTests').textContent = processedIds.size;
+        document.getElementById('passedTests').textContent = '0';
+        document.getElementById('failedTests').textContent = '0';
+        document.getElementById('pendingTests').textContent = processedIds.size;
+        
         // Show and setup Run Tests button
         runButton.style.display = 'block';
         runButton.onclick = runGeneratedTests;
+
+        // Create tests directory if it doesn't exist
+        try {
+            await fetch('/create-tests-dir', {
+                method: 'POST'
+            });
+        } catch (dirError) {
+            console.warn('Failed to create tests directory:', dirError);
+        }
 
         // Start MCP codegen session
         try {
@@ -156,7 +171,18 @@ async function generateAndRunTests() {
             appendConsoleOutput('Test code generated successfully. Click "Run Tests" to execute.');
         } catch (mcpError) {
             console.warn('MCP session failed:', mcpError);
-            appendConsoleOutput('Warning: Test code generated but session initialization failed. Some features may be limited.');
+            // Try to save generated code without MCP session
+            try {
+                await fetch('/save-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ code: generatedTestCode })
+                });
+            } catch (saveError) {
+                console.warn('Failed to save generated code:', saveError);
+            }
         }
         
     } catch (error) {
@@ -268,6 +294,27 @@ function processTestMessage(message) {
         isComplete: false
     };
 
+    // Function to update stats display
+    function updateStats() {
+        const containers = document.querySelectorAll('.test-case-container');
+        let passed = 0, failed = 0, running = 0, pending = 0;
+        
+        containers.forEach(container => {
+            const status = container.querySelector('.test-status').textContent.toLowerCase();
+            switch(status) {
+                case 'passed': passed++; break;
+                case 'failed': failed++; break;
+                case 'running': running++; break;
+                case 'pending': pending++; break;
+            }
+        });
+
+        document.getElementById('passedTests').textContent = passed;
+        document.getElementById('failedTests').textContent = failed;
+        document.getElementById('runningTests').textContent = running;
+        document.getElementById('pendingTests').textContent = pending;
+    }
+
     // Check for test case start
     const testStartMatch = message.match(/\[chromium\] › tests\\generated-test\.spec\.js:\d+:\d+ › SEITRACE API INSIGHTS › Testcase: (SAI\d+)/);
     if (testStartMatch) {
@@ -276,6 +323,7 @@ function processTestMessage(message) {
         result.testId = lastTestId;
         result.status = 'running';
         updateTestStatus(lastTestId, 'running', message);
+        updateStats();
     }
 
     // Check for error after a test case
@@ -285,6 +333,7 @@ function processTestMessage(message) {
         result.testId = lastTestId;
         result.status = 'failed';
         updateTestStatus(lastTestId, 'failed', message);
+        updateStats();
     }
 
     // Check for numbered failure (e.g., "1) [chromium] ›...")
@@ -295,6 +344,16 @@ function processTestMessage(message) {
         result.testId = testId;
         result.status = 'failed';
         updateTestStatus(testId, 'failed', message);
+        updateStats();
+    }
+
+    // Check for successful test completion (✓)
+    if (message.includes('✓') && lastTestId && !hasError) {
+        testStatus.set(lastTestId, 'passed');
+        result.testId = lastTestId;
+        result.status = 'passed';
+        updateTestStatus(lastTestId, 'passed', message);
+        updateStats();
     }
 
     // Process final summary
@@ -315,6 +374,9 @@ function processTestMessage(message) {
                     updateTestStatus(testId, 'passed', message);
                 }
             });
+            
+            // Final stats update
+            updateStats();
         }
     }
 
