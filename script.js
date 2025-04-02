@@ -1,6 +1,11 @@
 let mcpSessionId = null;
 let generatedTestCode = null;
 
+// Track test cases and their status globally
+const testStatus = new Map();
+let lastTestId = null;
+let hasError = false;
+
 // Define MCP server functions
 const mcpServer = {
     startCodegenSession: async (options) => {
@@ -110,11 +115,12 @@ async function generateAndRunTests() {
     const runButton = document.getElementById('runTestsButton');
     const validationMessage = document.getElementById('validationMessage');
     
-    // Clear previous results
+    // Clear all previous results and messages
     consoleOutput.innerHTML = '';
     testResults.innerHTML = '';
     generatedCode.value = '';
     validationMessage.textContent = '';
+    validationMessage.style.display = 'none';
     runButton.style.display = 'none';
     
     try {
@@ -126,29 +132,40 @@ async function generateAndRunTests() {
         generatedCode.value = code;
         generatedTestCode = code;
         
-        // Show and setup Run Tests button
-        runButton.style.display = 'block';
-        runButton.onclick = runGeneratedTests;
-        
-        // Create test case containers
+        // Create test case containers (avoid duplicates)
+        const processedIds = new Set();
         testCases.forEach(testCase => {
-            if (testCase.ID) {
+            if (testCase.ID && !processedIds.has(testCase.ID)) {
                 const testContainer = createTestCaseElement(testCase.ID);
                 testResults.appendChild(testContainer);
+                processedIds.add(testCase.ID);
             }
         });
 
-        // Start MCP codegen session
-        const sessionResponse = await mcpServer.startCodegenSession({
-            outputPath: './tests',
-            includeComments: true
-        });
-        mcpSessionId = sessionResponse.sessionId;
+        // Show and setup Run Tests button
+        runButton.style.display = 'block';
+        runButton.onclick = runGeneratedTests;
 
-        appendConsoleOutput('Test code generated successfully. Click "Run Tests" to execute.');
+        // Start MCP codegen session
+        try {
+            const sessionResponse = await mcpServer.startCodegenSession({
+                outputPath: './tests',
+                includeComments: true
+            });
+            mcpSessionId = sessionResponse.sessionId;
+            appendConsoleOutput('Test code generated successfully. Click "Run Tests" to execute.');
+        } catch (mcpError) {
+            console.warn('MCP session failed:', mcpError);
+            appendConsoleOutput('Warning: Test code generated but session initialization failed. Some features may be limited.');
+        }
         
     } catch (error) {
-        validationMessage.textContent = `Error: ${error.message}`;
+        if (error instanceof SyntaxError) {
+            validationMessage.textContent = 'Error: Invalid JSON format. Please check your input.';
+        } else {
+            validationMessage.textContent = `Error: ${error.message}`;
+        }
+        validationMessage.style.display = 'block';
         console.error('Error:', error);
     }
 }
@@ -156,92 +173,90 @@ async function generateAndRunTests() {
 function updateTestStatus(testId, status, message) {
     const testContainer = document.getElementById(`test-${testId}`);
     if (testContainer) {
-        const statusSpan = testContainer.querySelector('.status');
-        const outputDiv = testContainer.querySelector('.test-output');
+        const statusElement = testContainer.querySelector('.test-status');
+        const outputElement = testContainer.querySelector('.test-output');
         
-        if (statusSpan) {
+        if (statusElement) {
             // Don't update status if it's already failed
-            if (statusSpan.className.includes('failed') && status !== 'failed') {
+            if (statusElement.className.includes('failed') && status !== 'failed') {
                 return;
             }
             
             // Update status text and class
             const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
-            statusSpan.textContent = displayStatus;
-            statusSpan.className = `status ${status.toLowerCase()}`;
+            statusElement.textContent = displayStatus;
+            statusElement.className = `test-status ${status.toLowerCase()}`;
             
             // Add background color to the entire test case based on status
-            testContainer.className = `test-case ${status.toLowerCase()}`;
+            testContainer.className = `test-case-container ${status.toLowerCase()}`;
         }
         
-        if (outputDiv && message) {
+        if (outputElement && message) {
             // Create and append new output line
             const line = document.createElement('div');
             line.className = 'output-line';
+            if (status === 'passed') {
+                line.classList.add('success');
+            } else if (status === 'failed') {
+                line.classList.add('error');
+            }
             line.textContent = message;
-            outputDiv.appendChild(line);
-            outputDiv.scrollTop = outputDiv.scrollHeight;
+            outputElement.appendChild(line);
+            outputElement.scrollTop = outputElement.scrollHeight;
         }
     }
 }
 
 function runGeneratedTests() {
-  const runButton = document.getElementById('runTestsButton');
-  const reportSection = document.getElementById('reportSection');
-  const consoleOutput = document.getElementById('consoleOutput');
-  
-  // Clear previous outputs
-  consoleOutput.innerHTML = '';
-  
-  // Reset all test case statuses to Pending
-  document.querySelectorAll('.test-case').forEach(testCase => {
-      const statusSpan = testCase.querySelector('.status');
-      if (statusSpan) {
-          statusSpan.textContent = 'Pending';
-          statusSpan.className = 'status pending';
-      }
-      // Reset test case container class
-      testCase.className = 'test-case';
-  });
-  
-  runButton.textContent = 'Running Tests...';
-  runButton.disabled = true;
-  reportSection.style.display = 'none';
+    const runButton = document.getElementById('runTestsButton');
+    const consoleOutput = document.getElementById('consoleOutput');
+    
+    // Clear previous outputs
+    consoleOutput.innerHTML = '';
+    
+    // Reset all test case statuses to Running
+    document.querySelectorAll('.test-case-container').forEach(testCase => {
+        const testId = testCase.id.replace('test-', '');
+        updateTestStatus(testId, 'Running', '');
+    });
+    
+    runButton.textContent = 'Running Tests...';
+    runButton.disabled = true;
 
-  const eventSource = new EventSource('/run-playwright-test');
-  let currentTestId = null;
-  
-  eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log('Received event:', data); // Debug log
-      
-      // Process the message to extract test information
-      const testInfo = processTestMessage(data.message || '');
-      
-      if (testInfo.testId) {
-          // Update test status and output
-          updateTestStatus(testInfo.testId, testInfo.status, testInfo.message);
-      }
-      
-      // Check if test execution is complete
-      if (testInfo.isComplete) {
-          eventSource.close();
-          runButton.disabled = false;
-          runButton.textContent = 'Run Tests';
-          return;
-      }
-      
-      // Always append to console output
-      appendConsoleOutput(data.message);
-  };
-  
-  eventSource.onerror = (error) => {
-      console.error('EventSource error:', error);
-      eventSource.close();
-      runButton.disabled = false;
-      runButton.textContent = 'Run Tests';
-      appendConsoleOutput('Error: Failed to execute tests. Check console for details.');
-  };
+    const eventSource = new EventSource('/run-playwright-test');
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('Received event:', data);
+        
+        // Process the message and update UI
+        const result = processTestMessage(data.message || '');
+        appendConsoleOutput(data.message);
+        
+        // Close EventSource when tests are complete
+        if (result.isComplete) {
+            eventSource.close();
+            runButton.disabled = false;
+            runButton.textContent = 'Run Tests';
+        }
+    };
+    
+    eventSource.onerror = (error) => {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        runButton.disabled = false;
+        runButton.textContent = 'Run Tests';
+        appendConsoleOutput('Error: Failed to execute tests. Check console for details.');
+        
+        // Mark all running tests as failed on error
+        document.querySelectorAll('.test-status.running').forEach(statusElement => {
+            const testCase = statusElement.closest('.test-case-container');
+            if (testCase) {
+                const testId = testCase.id.replace('test-', '');
+                updateTestStatus(testId, 'Failed', 'Test execution failed');
+            }
+        });
+    };
 }
 
 function processTestMessage(message) {
@@ -252,72 +267,55 @@ function processTestMessage(message) {
         message: message,
         isComplete: false
     };
-    
-    // Check for "Test failed" message
-    if (message.includes('Test failed')) {
-        const testIdMatch = message.match(/SEITRACE API INSIGHTS › (SAI\d+)/);
-        if (testIdMatch) {
-            result.testId = testIdMatch[1];
-            result.status = 'failed';
-            return result;
-        }
-    }
 
-    // Check for "Test completed successfully" message
-    if (message.includes('Test completed successfully')) {
-        const testIdMatch = message.match(/SEITRACE API INSIGHTS › (SAI\d+)/);
-        if (testIdMatch) {
-            result.testId = testIdMatch[1];
-            result.status = 'passed';
-            return result;
-        }
-    }
-
-    // Format: [chromium] › tests\generated-test.spec.js:14:9 › SEITRACE API INSIGHTS › SAI02 - Verify user...
-    const testMatch = message.match(/› SEITRACE API INSIGHTS › (SAI\d+)/);
-    if (testMatch) {
-        result.testId = testMatch[1];
+    // Check for test case start
+    const testStartMatch = message.match(/\[chromium\] › tests\\generated-test\.spec\.js:\d+:\d+ › SEITRACE API INSIGHTS › Testcase: (SAI\d+)/);
+    if (testStartMatch) {
+        lastTestId = testStartMatch[1];
+        hasError = false;
+        result.testId = lastTestId;
         result.status = 'running';
+        updateTestStatus(lastTestId, 'running', message);
     }
 
-    // Format: 2) [chromium] › ... (indicates a failed test)
-    const failureMatch = message.match(/^\s*\d+\)\s+\[chromium\]\s+›.*?›\s+SEITRACE API INSIGHTS\s+›\s+(SAI\d+)/);
-    if (failureMatch) {
-        result.testId = failureMatch[1];
+    // Check for error after a test case
+    if (message.includes('Error:') && lastTestId) {
+        hasError = true;
+        testStatus.set(lastTestId, 'failed');
+        result.testId = lastTestId;
         result.status = 'failed';
+        updateTestStatus(lastTestId, 'failed', message);
     }
 
-    // Track test failures
-    const testFailures = new Map();
-    
-    // Format: "2 failed" in the summary
-    const finalFailedMatch = message.match(/^(\d+)\s+failed/);
-    if (finalFailedMatch && !message.includes('›')) {
-        // Store the number of failures
-        const failureCount = parseInt(finalFailedMatch[1]);
-        
-        // Find tests that have error messages
-        document.querySelectorAll('.test-case').forEach(testCase => {
-            const testId = testCase.id.replace('test-', '');
-            const outputDiv = testCase.querySelector('.test-output');
-            if (outputDiv && outputDiv.textContent.includes('Test failed')) {
-                testFailures.set(testId, true);
-                updateTestStatus(testId, 'failed', message);
-            }
-        });
+    // Check for numbered failure (e.g., "1) [chromium] ›...")
+    const numberedFailureMatch = message.match(/^\s*\d+\)\s+\[chromium\]\s+›.*?›\s+SEITRACE API INSIGHTS\s+›\s+Testcase:\s+(SAI\d+)/);
+    if (numberedFailureMatch) {
+        const testId = numberedFailureMatch[1];
+        testStatus.set(testId, 'failed');
+        result.testId = testId;
+        result.status = 'failed';
+        updateTestStatus(testId, 'failed', message);
     }
 
-    // Format: "1 passed (31.1s)" in the summary
-    const finalPassedMatch = message.match(/(\d+)\s+passed\s+\([\d.]+s\)/);
-    if (finalPassedMatch) {
-        // Update remaining tests that haven't failed as passed
-        document.querySelectorAll('.test-case').forEach(testCase => {
-            const testId = testCase.id.replace('test-', '');
-            if (!testFailures.has(testId)) {
-                updateTestStatus(testId, 'passed', message);
-            }
-        });
-        result.isComplete = true;
+    // Process final summary
+    if (message.includes('failed') || message.includes('passed')) {
+        const failedMatch = message.match(/(\d+)\s+failed/);
+        const passedMatch = message.match(/(\d+)\s+passed/);
+
+        if (failedMatch || passedMatch) {
+            result.isComplete = true;
+
+            // Update all test cases based on tracked status
+            document.querySelectorAll('.test-case-container').forEach(testCase => {
+                const testId = testCase.id.replace('test-', '');
+                if (testStatus.has(testId)) {
+                    updateTestStatus(testId, testStatus.get(testId), message);
+                } else {
+                    // If test wasn't marked as failed, it passed
+                    updateTestStatus(testId, 'passed', message);
+                }
+            });
+        }
     }
 
     return result;
@@ -328,34 +326,50 @@ function appendConsoleOutput(message) {
     const line = document.createElement('pre');
     line.className = 'output-line';
     
-    // Remove ANSI escape sequences and control characters
-    const cleanMessage = message
-        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // Remove ANSI color codes
-        .replace(/\x1b\[([0-9]{1,2}[A-Z])/g, '') // Remove ANSI control sequences
-        .replace(/\[([0-9]{1,2}[A-Z])/g, '') // Remove remaining control sequences
+    // Keep ANSI color codes but convert them to CSS colors
+    let formattedMessage = message
         .replace(/\[2K/g, '') // Remove clear line sequences
+        .replace(/\r/g, '\n') // Convert carriage returns to newlines
         .trim();
-    
-    if (!cleanMessage) return; // Skip empty lines
-    
-    // Properly encode special characters while preserving formatting
-    const encodedMessage = cleanMessage
+
+    // Skip if message is empty after cleaning
+    if (!formattedMessage) return;
+
+    // Convert ANSI colors to spans with CSS classes
+    formattedMessage = formattedMessage
+        .replace(/\x1b\[32m/g, '<span style="color: #2ecc71;">') // Green
+        .replace(/\x1b\[31m/g, '<span style="color: #e74c3c;">') // Red
+        .replace(/\x1b\[33m/g, '<span style="color: #f1c40f;">') // Yellow
+        .replace(/\x1b\[0m/g, '</span>') // Reset
+        .replace(/\x1b\[90m/g, '<span style="color: #95a5a6;">') // Gray
+        .replace(/\x1b\[[0-9;]*[mG]/g, '</span>'); // Clean up any remaining codes
+
+    // Preserve special characters while maintaining HTML formatting
+    formattedMessage = formattedMessage
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+
+    // Restore color spans
+    formattedMessage = formattedMessage
+        .replace(/&lt;span style="color: #[0-9a-f]{6};"&gt;/g, match => match.replace(/&lt;|&gt;/g, ''))
+        .replace(/&lt;\/span&gt;/g, '</span>');
+
+    line.innerHTML = formattedMessage;
     
-    line.innerHTML = encodedMessage;
-    
-    // Add monospace font styling
-    line.style.fontFamily = 'Consolas, monospace';
-    line.style.whiteSpace = 'pre-wrap';
-    line.style.wordBreak = 'break-all';
-    line.style.margin = '0';
-    line.style.padding = '2px 5px';
-    line.style.fontSize = '14px';
-    line.style.lineHeight = '1.4';
+    // Style improvements
+    Object.assign(line.style, {
+        fontFamily: 'Consolas, monospace',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        margin: '0',
+        padding: '4px 8px',
+        fontSize: '14px',
+        lineHeight: '1.5',
+        borderBottom: '1px solid #333'
+    });
     
     consoleOutput.appendChild(line);
     consoleOutput.scrollTop = consoleOutput.scrollHeight;
@@ -506,4 +520,145 @@ async function saveGeneratedCode() {
         console.error('Error saving code:', error);
         alert(`Error saving code: ${error.message}`);
     }
-} 
+}
+
+// Add CSS styles for test status and UI improvements
+const style = document.createElement('style');
+style.textContent = `
+    .test-case-container {
+        margin: 10px 0;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .test-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 15px;
+        background: #f8f9fa;
+        border-bottom: 1px solid #e0e0e0;
+    }
+
+    .test-id {
+        font-weight: bold;
+        font-family: 'Consolas', monospace;
+        color: #2c3e50;
+    }
+
+    .test-status {
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-weight: 500;
+        font-size: 0.9em;
+    }
+
+    .test-status.running {
+        color: #fff;
+        background-color: #f39c12;
+    }
+
+    .test-status.passed {
+        color: #fff;
+        background-color: #2ecc71;
+    }
+
+    .test-status.failed {
+        color: #fff;
+        background-color: #e74c3c;
+    }
+
+    .test-status.pending {
+        color: #fff;
+        background-color: #95a5a6;
+    }
+
+    .test-content {
+        padding: 10px 15px;
+        background: #f8f9fa;
+    }
+
+    .test-output {
+        margin: 0;
+        font-family: 'Consolas', monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #2c3e50;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    #consoleOutput {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: 'Consolas', monospace';
+        height: 400px;
+        overflow-y: auto;
+        margin: 10px 0;
+        border: 1px solid #333;
+    }
+
+    #consoleOutput::-webkit-scrollbar {
+        width: 12px;
+    }
+
+    #consoleOutput::-webkit-scrollbar-track {
+        background: #1e1e1e;
+        border-radius: 4px;
+    }
+
+    #consoleOutput::-webkit-scrollbar-thumb {
+        background: #424242;
+        border-radius: 4px;
+    }
+
+    #consoleOutput::-webkit-scrollbar-thumb:hover {
+        background: #4f4f4f;
+    }
+
+    .output-line {
+        position: relative;
+        padding-left: 8px !important;
+    }
+
+    .output-line:hover {
+        background: #2a2a2a;
+    }
+
+    .output-line.error {
+        color: #e74c3c;
+        background: rgba(231, 76, 60, 0.1);
+    }
+
+    .output-line.success {
+        color: #2ecc71;
+        background: rgba(46, 204, 113, 0.1);
+    }
+
+    .test-case-container.passed {
+        background-color: rgba(46, 204, 113, 0.1);
+    }
+    
+    .test-case-container.failed {
+        background-color: rgba(231, 76, 60, 0.1);
+    }
+    
+    .test-case-container.running {
+        background-color: rgba(243, 156, 18, 0.1);
+    }
+
+    .output-line {
+        padding: 4px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .output-line:last-child {
+        border-bottom: none;
+    }
+`;
+document.head.appendChild(style); 
