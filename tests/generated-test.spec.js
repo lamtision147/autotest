@@ -1,84 +1,57 @@
-// @ts-check
-const { test, expect } = require('@playwright/test');
-
-// Helper function for logging
-const log = (message) => {
-  console.log(`[${new Date().toISOString()}] ${message}`);
-};
+import { test, expect } from '@playwright/test';
 
 test.describe('SEITRACE API INSIGHTS', () => {
-  test('Testcase: SAI01 - Verify user can redirect to "Seitrace Insights" screen by click on "Seitrace Insights" button on header', async ({ page }) => {
-    log('Starting test: SAI01 - Verify user can redirect to "Seitrace Insights" screen by click on "Seitrace Insights" button on header');
-    log('Precondition: Precondition: 1. User is in https://seitrace.com/');
-    log('Navigating to starting URL');
-    await page.goto('https://seitrace.com/');
-    await page.waitForLoadState('networkidle');
+    test('Testcase: SAI01 - Verify user can redirect to \"Seitrace Insights\" screen by click on \"Seitrace Insights\" button on header', async ({ page }) => {
+        // 1. User is in https://seitrace.com/
+        console.log('Precondition: Navigate to https://seitrace.com/');
+        await page.goto('https://seitrace.com/');
 
-    // Step 1: Click on "Resources" button on header
-    log('Executing step 1: Click on "Resources" button on header');
-    await page.getByText('Resources').click();
-    await page.waitForLoadState('networkidle');
-    // Expected: Resources is displayed as dropdownlist and have "Seitrace Insights" button
-    log('Verifying: Resources is displayed as dropdownlist and have "Seitrace Insights" button');
+        // Step 1: Click on \"Resources\" button on header
+        console.log('Step 1: Click on \"Resources\" button on header');
+        await page.waitForSelector('text=Resources');
+        await page.click('text=Resources');
+        // Verify Step 1: Resources is displayed as dropdownlist and have "Seitrace Insights" button
+        const element0 = await page.locator('text="Seitrace Insights"');
+        await expect(element0).toBeVisible();
 
-    log('Test completed: SAI01 - Verify user can redirect to "Seitrace Insights" screen by click on "Seitrace Insights" button on header');
-  });
+        // Step 2: Click on \"Seitrace Insights\" button
+        console.log('Step 2: Click on \"Seitrace Insights\" button');
+        await page.waitForSelector('text=Seitrace Insights');
+        await page.click('text=Seitrace Insights');
+        // Verify Step 2: - User redirect to SEITRACE INSIGHTS screen successfully // - url is "https://seitrace.com/insights" // - Title of browser is "Sei Nwtwork APIs (Insights) | Seitrace"
+        await expect(page).toHaveURL('https://seitrace.com/insights');
+        const browserTitle = await page.title();
+        await expect(browserTitle).toBe('Sei Nwtwork APIs (Insights) | Seitrace');
 
-});
+    });
 
-test.describe('Default Feature', () => {
-  test('Testcase: SAI01 - ', async ({ page }) => {
-    log('Starting test: SAI01 - ');
-    log('Navigating to starting URL');
-    await page.goto('https://seitrace.com/');
-    await page.waitForLoadState('networkidle');
+    test('Testcase: SAI02 - Verify user can auto scroll to \"Maximize your potential\" section when click on \"API Pricing Plan\" button', async ({ page }) => {
+        // 1. User is in SEITRACE INSIGHTS screen https://seitrace.com/insights?/
+        console.log('Precondition: Navigate to https://seitrace.com/insights?/');
+        await page.goto('https://seitrace.com/insights?/');
 
-    // Step 2: Click on "Seitrace Insights" button
-    log('Executing step 2: Click on "Seitrace Insights" button');
-    await page.getByText('Seitrace Insights').click();
-    await page.waitForLoadState('networkidle');
-    // Expected: - User redirect to SEITRACE INSIGHTS screen successfully
-    log('Verifying: - User redirect to SEITRACE INSIGHTS screen successfully');
+        // Step 1: Click on \"API Pricing Plan\" button
+        console.log('Step 1: Click on \"API Pricing Plan\" button');
+        await page.waitForSelector('text=API Pricing Plan');
+        await page.click('text=API Pricing Plan');
+        // Verify Step 1: UI auto scroll to "Maximize your potential" section
 
-    log('Test completed: SAI01 - ');
-  });
+    });
 
-  test('Testcase: SAI02 - Verify user can auto scroll to "Maximize your potential" section when click on "API Pricing Plan" button', async ({ page }) => {
-    log('Starting test: SAI02 - Verify user can auto scroll to "Maximize your potential" section when click on "API Pricing Plan" button');
-    log('Precondition: Precondition: 1. User is in SEITRACE INSIGHTS screen');
-    log('Navigating to starting URL');
-    await page.goto('https://seitrace.com/');
-    await page.waitForLoadState('networkidle');
+    test('Testcase: SAI03 - Verify user can redirect to \"Seitrace Insights Docs\" screen by click on \"Explore Docs\" button', async ({ page }) => {
+        // 1. User is in SEITRACE INSIGHTS screen https://seitrace.com/insights?/
+        console.log('Precondition: Navigate to https://seitrace.com/insights?/');
+        await page.goto('https://seitrace.com/insights?/');
 
-    // Step 1: Click on "API Pricing Plan" button
-    log('Executing step 1: Click on "API Pricing Plan" button');
-    await page.getByText('API Pricing Plan').click();
-    await page.waitForLoadState('networkidle');
-    // Expected: UI auto scroll to "Maximize your potential" section
-    log('Verifying: UI auto scroll to "Maximize your potential" section');
-    const section = page.getByText('Maximize your potential').first();
-    await section.scrollIntoViewIfNeeded();
-    await expect(section).toBeVisible();
+        // Step 1: Click on \"Explore Docs\" button
+        console.log('Step 1: Click on \"Explore Docs\" button');
+        await page.waitForSelector('text=Explore Docs');
+        await page.click('text=Explore Docs');
+        // Verify Step 1: - User redirect to Seitrace Insights Docs in current tab successfully // - url is "https://seitrace.com/insights-docs?chain=pacific-1/#plan" // - Title of browser is "Sei Network APIs (Insights) Documents | Seitrace"
+        await expect(page).toHaveURL('https://seitrace.com/insights-docs?chain=pacific-1/#plan');
+        const browserTitle = await page.title();
+        await expect(browserTitle).toBe('Sei Network APIs (Insights) Documents | Seitrace');
 
-    log('Test completed: SAI02 - Verify user can auto scroll to "Maximize your potential" section when click on "API Pricing Plan" button');
-  });
-
-  test('Testcase: SAI03 - Verify user can redirect to "Seitrace Insights Docs" screen by click on "Explore Docs" button', async ({ page }) => {
-    log('Starting test: SAI03 - Verify user can redirect to "Seitrace Insights Docs" screen by click on "Explore Docs" button');
-    log('Precondition: Precondition: 1. User is in SEITRACE INSIGHTS screen');
-    log('Navigating to starting URL');
-    await page.goto('https://seitrace.com/');
-    await page.waitForLoadState('networkidle');
-
-    // Step 1: Click on "Explore Docs" button
-    log('Executing step 1: Click on "Explore Docs" button');
-    await page.getByText('Explore Docs').click();
-    await page.waitForLoadState('networkidle');
-    // Expected: - User redirect to Seitrace Insights Docs in current tab successfully
-    log('Verifying: - User redirect to Seitrace Insights Docs in current tab successfully');
-
-    log('Test completed: SAI03 - Verify user can redirect to "Seitrace Insights Docs" screen by click on "Explore Docs" button');
-  });
+    });
 
 });
-

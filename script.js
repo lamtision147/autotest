@@ -325,142 +325,145 @@ function processTestMessage(message) {
 
 function appendConsoleOutput(message) {
     const consoleOutput = document.getElementById('consoleOutput');
-    const line = document.createElement('div');
+    const line = document.createElement('pre');
     line.className = 'output-line';
-    line.textContent = message;
+    
+    // Remove ANSI escape sequences and control characters
+    const cleanMessage = message
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // Remove ANSI color codes
+        .replace(/\x1b\[([0-9]{1,2}[A-Z])/g, '') // Remove ANSI control sequences
+        .replace(/\[([0-9]{1,2}[A-Z])/g, '') // Remove remaining control sequences
+        .replace(/\[2K/g, '') // Remove clear line sequences
+        .trim();
+    
+    if (!cleanMessage) return; // Skip empty lines
+    
+    // Properly encode special characters while preserving formatting
+    const encodedMessage = cleanMessage
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    
+    line.innerHTML = encodedMessage;
+    
+    // Add monospace font styling
+    line.style.fontFamily = 'Consolas, monospace';
+    line.style.whiteSpace = 'pre-wrap';
+    line.style.wordBreak = 'break-all';
+    line.style.margin = '0';
+    line.style.padding = '2px 5px';
+    line.style.fontSize = '14px';
+    line.style.lineHeight = '1.4';
+    
     consoleOutput.appendChild(line);
     consoleOutput.scrollTop = consoleOutput.scrollHeight;
 }
 
 function generatePlaywrightCode(testCases) {
-    // Group testcases by Feature
-    const testCasesByFeature = {};
-    testCases.forEach(tc => {
-        const feature = tc.Feature || 'SEITRACE API INSIGHTS';
-        if (!testCasesByFeature[feature]) {
-            testCasesByFeature[feature] = [];
+    // Group test cases by Feature and ID
+    const groupedTests = {};
+    testCases.forEach(testCase => {
+        if (testCase.Feature) {
+            if (!groupedTests[testCase.Feature]) {
+                groupedTests[testCase.Feature] = {};
+            }
         }
-        testCasesByFeature[feature].push(tc);
+        if (testCase.ID) {
+            if (!groupedTests[Object.keys(groupedTests)[0]][testCase.ID]) {
+                groupedTests[Object.keys(groupedTests)[0]][testCase.ID] = [];
+            }
+            groupedTests[Object.keys(groupedTests)[0]][testCase.ID].push(testCase);
+        }
     });
-    
+
     let code = `import { test, expect } from '@playwright/test';\n\n`;
-    
-    // Generate code for each feature
-    Object.entries(testCasesByFeature).forEach(([feature, cases]) => {
+
+    // Generate test code for each feature
+    for (const feature in groupedTests) {
         code += `test.describe('${feature}', () => {\n`;
         
-        // Process each test case
-        cases.forEach(testCase => {
-            if (!testCase.ID || !testCase.Title) return;
+        // Generate test code for each test case ID
+        for (const testId in groupedTests[feature]) {
+            const steps = groupedTests[feature][testId];
+            const mainStep = steps[0]; // Get the first step for title and description
             
-            code += `    test('Testcase: ${testCase.ID} - ${testCase.Title}', async ({ page }) => {\n`;
+            // Escape quotes in title
+            const escapedTitle = (mainStep.Title || "").replace(/"/g, '\\"');
+            code += `    test('Testcase: ${testId} - ${escapedTitle}', async ({ page }) => {\n`;
             
-            // Add precondition/description as a comment and console log
-            const description = testCase.Description || 'User is in https://seitrace.com/';
-            code += `        // Precondition: ${description.split('\n')[0]}\n`;
-            code += `        console.log('Precondition: Navigate to Seitrace homepage');\n`;
-            code += `        await page.goto('https://seitrace.com/');\n\n`;
-            
-            // Process test steps and expected results
-            const steps = testCase["Test Steps"] ? String(testCase["Test Steps"]).split('\n') : [];
-            const stepNos = testCase["Step No."] ? String(testCase["Step No."]).split('\n') : [];
-            const expectedResults = testCase["Expected result"] ? String(testCase["Expected result"]).split('\n') : [];
-            
-            // Create an array to process all steps for this test case
-            const processedSteps = [];
-            for (let i = 0; i < Math.max(steps.length, stepNos.length); i++) {
-                processedSteps.push({
-                    stepNo: i < stepNos.length ? stepNos[i] : `${i+1}`,
-                    step: i < steps.length ? steps[i] : '',
-                    expected: i < expectedResults.length ? expectedResults[i] : ''
+            // Extract URL from precondition
+            if (mainStep.Description) {
+                const preconditionLines = mainStep.Description.split('\n');
+                preconditionLines.forEach(line => {
+                    if (line.includes('Precondition:') || line.includes('User is in')) {
+                        // Look for URL pattern with or without trailing characters
+                        const urlMatch = line.match(/(https?:\/\/[^\s,]+[^\s,.])/);
+                        if (urlMatch) {
+                            code += `        // ${line.trim()}\n`;
+                            code += `        console.log('Precondition: Navigate to ${urlMatch[1]}');\n`;
+                            code += `        await page.goto('${urlMatch[1]}');\n\n`;
+                        }
+                    }
                 });
             }
-            
-            // Add each step and verification
-            processedSteps.forEach((step, index) => {
-                if (!step.step) return;
+
+            // Generate code for each step
+            steps.forEach((step, index) => {
+                // Escape quotes in test steps
+                const escapedSteps = step['Test Steps'].replace(/"/g, '\\"');
+                code += `        // Step ${step['Step No.']}: ${escapedSteps}\n`;
+                code += `        console.log('Step ${step['Step No.']}: ${escapedSteps}');\n`;
                 
-                // Add step comment and console log
-                code += `        // Step ${step.stepNo}: ${step.step}\n`;
-                code += `        console.log('Step ${step.stepNo}: ${step.step.replace(/'/g, "\\'")}');\n`;
-                
-                // Handle different action types
-                if (step.step.toLowerCase().includes('click on')) {
-                    const clickMatch = step.step.match(/click on "([^"]+)"/i);
-                    if (clickMatch) {
-                        const elementText = clickMatch[1];
-                        code += `        await page.waitForSelector('text=${elementText}');\n`;
-                        code += `        await page.click('text=${elementText}');\n`;
-                    }
-                } else if (step.step.toLowerCase().includes('check')) {
-                    const checkMatch = step.step.match(/check "([^"]+)"/i);
-                    if (checkMatch) {
-                        const elementText = checkMatch[1];
-                        code += `        const ${elementText.toLowerCase().replace(/[^a-z0-9]/g, '')}Element = await page.locator('text=${elementText}');\n`;
-                        code += `        await expect(${elementText.toLowerCase().replace(/[^a-z0-9]/g, '')}Element).toBeVisible();\n`;
+                // Generate step execution code
+                const stepText = step['Test Steps'].toLowerCase();
+                if (stepText.includes('click')) {
+                    const buttonText = step['Test Steps'].match(/"([^"]+)"/)?.[1];
+                    if (buttonText) {
+                        code += `        await page.waitForSelector('text=${buttonText}');\n`;
+                        code += `        await page.click('text=${buttonText}');\n`;
                     }
                 }
-                
-                // Add verification if there's an expected result
-                if (step.expected) {
-                    code += `\n        // Verify Step ${step.stepNo}: ${step.expected}\n`;
+
+                // Generate verification code
+                if (step['Expected result']) {
+                    code += `        // Verify Step ${step['Step No.']}: ${step['Expected result'].split('\n').join(' // ')}\n`;
+                    const expectedResults = step['Expected result'].split('\n');
                     
-                    // URL verification
-                    if (step.expected.toLowerCase().includes('url is') || 
-                        step.expected.toLowerCase().includes('redirect to')) {
-                        const urlMatch = step.expected.match(/(?:url is|redirect to) "([^"]+)"/i);
-                        if (urlMatch) {
-                            code += `        await expect(page).toHaveURL('${urlMatch[1]}');\n`;
+                    expectedResults.forEach(result => {
+                        if (result.includes('url is')) {
+                            const expectedUrl = result.match(/"([^"]+)"/)?.[1];
+                            if (expectedUrl) {
+                                code += `        await expect(page).toHaveURL('${expectedUrl}');\n`;
+                            }
                         }
-                    }
-                    
-                    // Text verification
-                    if (step.expected.toLowerCase().includes('display') || 
-                        step.expected.toLowerCase().includes('visible') ||
-                        step.expected.toLowerCase().includes('see')) {
-                        const textMatches = step.expected.match(/"([^"]+)"/g);
-                        if (textMatches) {
-                            textMatches.forEach(match => {
-                                const text = match.replace(/"/g, '');
-                                const varName = text.toLowerCase()
-                                    .replace(/[^a-z0-9]/g, '')
-                                    .substring(0, 15);
-                                
-                                code += `        const ${varName}Element = await page.locator('text=${text}');\n`;
-                                code += `        await expect(${varName}Element).toBeVisible();\n`;
-                            });
+                        if (result.includes('Title of browser is')) {
+                            const expectedTitle = result.match(/"([^"]+)"/)?.[1];
+                            if (expectedTitle) {
+                                code += `        const browserTitle = await page.title();\n`;
+                                code += `        await expect(browserTitle).toBe('${expectedTitle}');\n`;
+                            }
                         }
-                    }
-                    
-                    // Title verification
-                    if (step.expected.toLowerCase().includes('title')) {
-                        const titleMatch = step.expected.match(/title is "([^"]+)"/i);
-                        if (titleMatch) {
-                            code += `        const browserTitle = await page.title();\n`;
-                            code += `        await expect(browserTitle).toBe('${titleMatch[1]}');\n`;
+                        if (result.includes('is displayed') || result.includes('is visible')) {
+                            const elementText = result.match(/("([^"]+)")/)?.[1];
+                            if (elementText) {
+                                const elementVar = `element${index}`;
+                                code += `        const ${elementVar} = await page.locator('text=${elementText}');\n`;
+                                code += `        await expect(${elementVar}).toBeVisible();\n`;
+                            }
                         }
-                    }
-                    
-                    // Viewport verification (for scrolling tests)
-                    if (step.expected.toLowerCase().includes('scroll')) {
-                        const scrollMatch = step.expected.match(/scroll to "([^"]+)"/i);
-                        if (scrollMatch) {
-                            const section = scrollMatch[1];
-                            code += `        const ${section.toLowerCase().replace(/[^a-z0-9]/g, '')}Section = await page.locator('text=${section}');\n`;
-                            code += `        await expect(${section.toLowerCase().replace(/[^a-z0-9]/g, '')}Section).toBeInViewport();\n`;
-                        }
-                    }
+                    });
                 }
-                
                 code += '\n';
             });
-            
-            code += `    });\n\n`;
-        });
+
+            code += '    });\n\n';
+        }
         
-        code += `});\n`;
-    });
-    
+        code += '});\n';
+    }
+
     return code;
 }
 
