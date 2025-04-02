@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playwright Test Generator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        textarea {
+            width: 100%;
+            height: 300px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .validation-message {
+            color: #d9534f;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .test-case {
+            border: 1px solid #ddd;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .test-id {
+            font-weight: bold;
+            color: #333;
+        }
+        .test-title {
+            flex-grow: 1;
+            margin: 0 10px;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .pending {
+            background-color: #f0ad4e;
+            color: white;
+        }
+        .running {
+            background-color: #5bc0de;
+            color: white;
+        }
+        .passed {
+            background-color: #5cb85c;
+            color: white;
+        }
+        .failed {
+            background-color: #d9534f;
+            color: white;
+        }
+        .test-output {
+            margin-top: 10px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .error {
+            color: #d9534f;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f2dede;
+            border-radius: 3px;
+        }
+        .steps, .expectations {
+            margin-top: 10px;
+        }
+        .console-output {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .output-line {
+            margin-bottom: 5px;
+            line-height: 1.5;
+        }
+        .output-line.success {
+            color: #5cb85c;
+        }
+        .output-line.error {
+            color: #d9534f;
+        }
+        .output-line.debug {
+            color: #5bc0de;
+        }
+        .output-section {
+            margin-top: 20px;
+        }
+        .code-container {
+            position: relative;
+            margin: 10px 0;
+        }
+        .code-editor {
+            width: 100%;
+            min-height: 300px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            resize: vertical;
+        }
+        #saveCode {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #saveCode:hover {
+            background-color: #218838;
+        }
+        #saveCode:active {
+            background-color: #1e7e34;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Playwright Test Generator</h1>
+        
+        <div>
+            <h2>JSON Input</h2>
+            <textarea id="jsonInput" placeholder="Enter your JSON test cases here..."></textarea>
+            <button id="generateButton" class="button">Generate Code</button>
+        </div>
+        
+        <div class="output-section">
+            <h2>Generated Playwright Code</h2>
+            <div id="codeSection">
+                <div class="code-container">
+                    <textarea id="generatedCode" class="code-editor" spellcheck="false"></textarea>
+                    <button id="saveCode" class="action-button">Save Code</button>
+                </div>
+            </div>
+            
+            <div id="validationMessage" class="validation-message"></div>
+            
+            <button id="runTestsButton" style="display: none;" class="button">Run Tests</button>
+            
+            <h2>Test Results</h2>
+            <div id="testResults"></div>
+            
+            <h2>Console Output</h2>
+            <div id="consoleOutput" class="console-output"></div>
+            
+            <div id="reportSection" style="display: none;">
+                <h3>Test Report</h3>
+                <iframe id="reportFrame" width="100%" height="600px"></iframe>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html> 
