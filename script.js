@@ -112,6 +112,7 @@ async function generateAndRunTests() {
     const consoleOutput = document.getElementById('consoleOutput');
     const testResults = document.getElementById('testResults');
     const generatedCode = document.getElementById('generatedCode');
+    const saveButton = document.getElementById('saveCode');
     const runButton = document.getElementById('runTestsButton');
     const validationMessage = document.getElementById('validationMessage');
     
@@ -121,7 +122,10 @@ async function generateAndRunTests() {
     generatedCode.value = '';
     validationMessage.textContent = '';
     validationMessage.style.display = 'none';
-    runButton.style.display = 'none';
+    
+    // Reset button states
+    saveButton.disabled = true;
+    runButton.disabled = true;
     
     try {
         // Validate JSON input
@@ -131,6 +135,9 @@ async function generateAndRunTests() {
         const code = generatePlaywrightCode(testCases);
         generatedCode.value = code;
         generatedTestCode = code;
+        
+        // Enable Confirm Code button since code was generated successfully
+        saveButton.disabled = false;
         
         // Create test case containers and count unique test IDs
         const processedIds = new Set();
@@ -147,44 +154,7 @@ async function generateAndRunTests() {
         document.getElementById('passedTests').textContent = '0';
         document.getElementById('failedTests').textContent = '0';
         document.getElementById('pendingTests').textContent = processedIds.size;
-        
-        // Show and setup Run Tests button
-        runButton.style.display = 'block';
-        runButton.onclick = runGeneratedTests;
 
-        // Create tests directory if it doesn't exist
-        try {
-            await fetch('/create-tests-dir', {
-                method: 'POST'
-            });
-        } catch (dirError) {
-            console.warn('Failed to create tests directory:', dirError);
-        }
-
-        // Start MCP codegen session
-        try {
-            const sessionResponse = await mcpServer.startCodegenSession({
-                outputPath: './tests',
-                includeComments: true
-            });
-            mcpSessionId = sessionResponse.sessionId;
-            appendConsoleOutput('Test code generated successfully. Click "Run Tests" to execute.');
-        } catch (mcpError) {
-            console.warn('MCP session failed:', mcpError);
-            // Try to save generated code without MCP session
-            try {
-                await fetch('/save-code', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ code: generatedTestCode })
-                });
-            } catch (saveError) {
-                console.warn('Failed to save generated code:', saveError);
-            }
-        }
-        
     } catch (error) {
         if (error instanceof SyntaxError) {
             validationMessage.textContent = 'Error: Invalid JSON format. Please check your input.';
@@ -193,6 +163,10 @@ async function generateAndRunTests() {
         }
         validationMessage.style.display = 'block';
         console.error('Error:', error);
+        
+        // Disable buttons on error
+        saveButton.disabled = true;
+        runButton.disabled = true;
     }
 }
 
@@ -556,37 +530,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-async function saveGeneratedCode() {
-    const code = document.getElementById('generatedCode').value;
-    if (!code) {
-        alert('No code to save. Please generate code first.');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/save-code', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ code })
-        });
-        
-        const result = await response.json();
-        if (result.success) {
-            alert('Code saved successfully!');
-        } else {
-            alert(`Failed to save code: ${result.error}`);
-        }
-    } catch (error) {
-        console.error('Error saving code:', error);
-        alert(`Error saving code: ${error.message}`);
-    }
-}
-
-// Add CSS styles for test status and UI improvements
 const style = document.createElement('style');
 style.textContent = `
+    .toast-container {
+        position: fixed;
+        top: 0;
+        right: 20px;
+        z-index: 9999;
+    }
+
+    .toast {
+        position: absolute;
+        right: 0;
+        padding: 15px 25px;
+        background: #2ecc71;
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        font-size: 14px;
+        opacity: 0;
+        transition: all 0.3s ease-in-out;
+        display: flex;
+        align-items: center;
+        min-width: 200px;
+    }
+
+    .toast.show {
+        opacity: 1;
+    }
+
+    .toast.error {
+        background: #e74c3c;
+    }
+
     .test-case-container {
         margin: 10px 0;
         border: 1px solid #e0e0e0;
@@ -723,4 +699,88 @@ style.textContent = `
         border-bottom: none;
     }
 `;
-document.head.appendChild(style); 
+document.head.appendChild(style);
+
+function showToast(message, type = 'success') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.querySelector('.toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.className = 'toast-container';
+        document.body.appendChild(toastContainer);
+    }
+
+    // Create new toast
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+
+    // Add toast to container
+    toastContainer.appendChild(toast);
+
+    // Calculate position based on existing toasts
+    const existingToasts = toastContainer.querySelectorAll('.toast');
+    const offset = (existingToasts.length - 1) * 60; // 60px spacing between toasts
+    toast.style.top = `${20 + offset}px`; // Start at 20px from top
+
+    // Trigger reflow and add show class
+    toast.offsetHeight;
+    toast.classList.add('show');
+
+    // Remove toast after 3 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+            // Reposition remaining toasts
+            const remainingToasts = toastContainer.querySelectorAll('.toast');
+            remainingToasts.forEach((t, index) => {
+                t.style.top = `${20 + (index * 60)}px`;
+            });
+            // Remove container if empty
+            if (remainingToasts.length === 0) {
+                toastContainer.remove();
+            }
+        }, 300);
+    }, 3000);
+}
+
+async function saveGeneratedCode() {
+    const code = document.getElementById('generatedCode').value;
+    if (!code) {
+        showToast('No code to save. Please generate code first.', 'error');
+        return;
+    }
+    
+    try {
+        // Create tests directory if it doesn't exist
+        await fetch('/create-tests-dir', {
+            method: 'POST'
+        });
+
+        // Save the code
+        const response = await fetch('/save-code', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                code: code,
+                filename: 'generated-test.spec.js'
+            })
+        });
+        
+        if (response.ok) {
+            showToast('Code saved successfully!');
+            // Enable Run Tests button after successful save
+            document.getElementById('runTestsButton').disabled = false;
+        } else {
+            const error = await response.text();
+            throw new Error(error);
+        }
+    } catch (error) {
+        console.error('Error saving code:', error);
+        showToast(`Error saving code: ${error.message}`, 'error');
+        document.getElementById('runTestsButton').disabled = true;
+    }
+} 
