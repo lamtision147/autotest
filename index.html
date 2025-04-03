@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Playwright Test Generator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -252,6 +253,11 @@
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 20px;
+            height: 45px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         button:disabled {
@@ -259,14 +265,38 @@
             opacity: 0.7;
         }
 
+        button i {
+            font-size: 18px;
+        }
+
         #generateButton {
             background-color: #0e639c;
             color: white;
-            margin-top: 10px;
         }
 
         #generateButton:hover {
             background-color: #1177bb;
+        }
+
+        #uploadJsonButton {
+            background-color: #3498db;
+            color: white;
+        }
+
+        #uploadJsonButton:hover {
+            background-color: #2980b9;
+        }
+
+        /* Hide file input */
+        #jsonFileInput {
+            display: none;
+        }
+
+        .json-input-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            gap: 10px;
         }
 
         .button-group {
@@ -349,6 +379,37 @@
             z-index: 2;
             outline: none;
         }
+
+        /* Button animations */
+        @keyframes ellipsis {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+            100% { content: ''; }
+        }
+
+        #runTestsButton.running {
+            position: relative;
+            pointer-events: none;
+        }
+
+        #runTestsButton.running::after {
+            content: '';
+            display: inline-block;
+            width: 12px;
+            margin-left: 4px;
+            animation: ellipsis 1.5s infinite;
+            position: absolute;
+            left: calc(50% + 30px);
+        }
+
+        #runTestsButton.running i {
+            display: none;
+        }
+
+        #runTestsButton:not(.running) i {
+            display: inline-flex;
+        }
     </style>
 </head>
 <body>
@@ -360,7 +421,15 @@
         <div class="input-section">
             <h2>JSON Input</h2>
             <textarea id="jsonInput" placeholder="Paste your JSON test cases here..."></textarea>
-            <button id="generateButton" onclick="generateAndRunTests()">Generate Code</button>
+            <div class="json-input-buttons">
+                <input type="file" id="jsonFileInput" accept=".json">
+                <button id="uploadJsonButton" onclick="document.getElementById('jsonFileInput').click()">
+                    <i class="fas fa-plus"></i>Upload JSON file
+                </button>
+                <button id="generateButton" onclick="generateAndRunTests()">
+                    Generate Code<i class="fas fa-robot"></i>
+                </button>
+            </div>
         </div>
         
         <div class="output-section">
@@ -371,8 +440,12 @@
                 </div>
                 <div class="button-group">
                     <div class="button-container">
-                        <button id="saveCode" disabled>Confirm Code</button>
-                        <button id="runTestsButton" onclick="runGeneratedTests()" disabled>Run Tests</button>
+                        <button id="saveCode" disabled>
+                            Confirm Code<i class="fas fa-save"></i>
+                        </button>
+                        <button id="runTestsButton" onclick="runGeneratedTests()" disabled>
+                            Run Tests<i class="fas fa-play"></i>
+                        </button>
                     </div>
                 </div>
             </div>

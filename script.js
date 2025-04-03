@@ -105,6 +105,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (generateButton) {
         generateButton.addEventListener('click', generateAndRunTests);
     }
+    
+    const saveCodeButton = document.getElementById('saveCode');
+    if (saveCodeButton) {
+        saveCodeButton.addEventListener('click', saveGeneratedCode);
+    }
+
+    // Add JSON file upload handler
+    const jsonFileInput = document.getElementById('jsonFileInput');
+    if (jsonFileInput) {
+        jsonFileInput.addEventListener('change', handleJsonFileUpload);
+    }
 });
 
 async function generateAndRunTests() {
@@ -207,56 +218,66 @@ function updateTestStatus(testId, status, message) {
     }
 }
 
-function runGeneratedTests() {
+async function runGeneratedTests() {
     const runButton = document.getElementById('runTestsButton');
-    const consoleOutput = document.getElementById('consoleOutput');
+    const originalText = runButton.innerHTML;
     
-    // Clear previous outputs
-    consoleOutput.innerHTML = '';
-    
-    // Reset all test case statuses to Running
-    document.querySelectorAll('.test-case-container').forEach(testCase => {
-        const testId = testCase.id.replace('test-', '');
-        updateTestStatus(testId, 'Running', '');
-    });
-    
-    runButton.textContent = 'Running Tests...';
-    runButton.disabled = true;
-
-    const eventSource = new EventSource('/run-playwright-test');
-    
-    eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log('Received event:', data);
+    try {
+        // Add running state
+        runButton.classList.add('running');
+        runButton.innerHTML = '<span style="margin-right: 12px;">Running</span><i class="fas fa-play"></i>';
         
-        // Process the message and update UI
-        const result = processTestMessage(data.message || '');
-        appendConsoleOutput(data.message);
+        // Clear previous outputs
+        const consoleOutput = document.getElementById('consoleOutput');
+        consoleOutput.innerHTML = '';
         
-        // Close EventSource when tests are complete
-        if (result.isComplete) {
-            eventSource.close();
-            runButton.disabled = false;
-            runButton.textContent = 'Run Tests';
-        }
-    };
-    
-    eventSource.onerror = (error) => {
-        console.error('EventSource error:', error);
-        eventSource.close();
-        runButton.disabled = false;
-        runButton.textContent = 'Run Tests';
-        appendConsoleOutput('Error: Failed to execute tests. Check console for details.');
-        
-        // Mark all running tests as failed on error
-        document.querySelectorAll('.test-status.running').forEach(statusElement => {
-            const testCase = statusElement.closest('.test-case-container');
-            if (testCase) {
-                const testId = testCase.id.replace('test-', '');
-                updateTestStatus(testId, 'Failed', 'Test execution failed');
-            }
+        // Reset all test case statuses to Running
+        document.querySelectorAll('.test-case-container').forEach(testCase => {
+            const testId = testCase.id.replace('test-', '');
+            updateTestStatus(testId, 'Running', '');
         });
-    };
+        
+        // Your existing test running code here
+        const eventSource = new EventSource('/run-playwright-test');
+        
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('Received event:', data);
+            
+            // Process the message and update UI
+            const result = processTestMessage(data.message || '');
+            appendConsoleOutput(data.message);
+            
+            // Close EventSource when tests are complete
+            if (result.isComplete) {
+                eventSource.close();
+                runButton.classList.remove('running');
+                runButton.innerHTML = originalText;
+            }
+        };
+        
+        eventSource.onerror = (error) => {
+            console.error('EventSource error:', error);
+            eventSource.close();
+            runButton.classList.remove('running');
+            runButton.innerHTML = originalText;
+            appendConsoleOutput('Error: Failed to execute tests. Check console for details.');
+            
+            // Mark all running tests as failed on error
+            document.querySelectorAll('.test-status.running').forEach(statusElement => {
+                const testCase = statusElement.closest('.test-case-container');
+                if (testCase) {
+                    const testId = testCase.id.replace('test-', '');
+                    updateTestStatus(testId, 'Failed', 'Test execution failed');
+                }
+            });
+        };
+    } catch (error) {
+        // If error occurs
+        runButton.classList.remove('running');
+        runButton.innerHTML = originalText;
+        console.error('Error running tests:', error);
+    }
 }
 
 function processTestMessage(message) {
@@ -518,17 +539,131 @@ function generatePlaywrightCode(testCases) {
 }
 
 // Adding save code functionality
-document.addEventListener('DOMContentLoaded', () => {
-    const generateButton = document.getElementById('generateButton');
-    if (generateButton) {
-        generateButton.addEventListener('click', generateAndRunTests);
+async function saveGeneratedCode() {
+    const code = document.getElementById('generatedCode').value;
+    if (!code) {
+        showToast('No code to save. Please generate code first.', 'error');
+        return;
     }
     
-    const saveCodeButton = document.getElementById('saveCode');
-    if (saveCodeButton) {
-        saveCodeButton.addEventListener('click', saveGeneratedCode);
+    try {
+        // Create tests directory if it doesn't exist
+        await fetch('/create-tests-dir', {
+            method: 'POST'
+        });
+
+        // Save the code
+        const response = await fetch('/save-code', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                code: code,
+                filename: 'generated-test.spec.js'
+            })
+        });
+        
+        if (response.ok) {
+            showToast('Code saved successfully!');
+            // Enable Run Tests button after successful save
+            document.getElementById('runTestsButton').disabled = false;
+        } else {
+            const error = await response.text();
+            throw new Error(error);
+        }
+    } catch (error) {
+        console.error('Error saving code:', error);
+        showToast(`Error saving code: ${error.message}`, 'error');
+        document.getElementById('runTestsButton').disabled = true;
     }
-});
+}
+
+function showToast(message, type = 'success') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.querySelector('.toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.className = 'toast-container';
+        document.body.appendChild(toastContainer);
+    }
+
+    // Create new toast
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+
+    // Add toast to container
+    toastContainer.appendChild(toast);
+
+    // Calculate position based on existing toasts
+    const existingToasts = toastContainer.querySelectorAll('.toast');
+    const offset = (existingToasts.length - 1) * 60; // 60px spacing between toasts
+    toast.style.top = `${20 + offset}px`; // Start at 20px from top
+
+    // Trigger reflow and add show class
+    toast.offsetHeight;
+    toast.classList.add('show');
+
+    // Remove toast after 3 seconds
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+            // Reposition remaining toasts
+            const remainingToasts = toastContainer.querySelectorAll('.toast');
+            remainingToasts.forEach((t, index) => {
+                t.style.top = `${20 + (index * 60)}px`;
+            });
+            // Remove container if empty
+            if (remainingToasts.length === 0) {
+                toastContainer.remove();
+            }
+        }, 300);
+    }, 3000);
+}
+
+async function handleJsonFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    try {
+        // Check if file is JSON
+        if (!file.type && !file.name.endsWith('.json')) {
+            throw new Error('Selected file is not a JSON file');
+        }
+
+        const reader = new FileReader();
+        
+        reader.onload = async (e) => {
+            try {
+                // Try to parse JSON to validate it
+                const jsonContent = e.target.result;
+                JSON.parse(jsonContent); // This will throw if invalid JSON
+
+                // Update textarea with file content
+                const jsonInput = document.getElementById('jsonInput');
+                jsonInput.value = jsonContent;
+
+                // Show success toast
+                showToast('JSON file uploaded successfully');
+
+                // Reset file input for future uploads
+                event.target.value = '';
+            } catch (error) {
+                showToast('Invalid JSON file content', 'error');
+            }
+        };
+
+        reader.onerror = () => {
+            showToast('Error reading file', 'error');
+        };
+
+        reader.readAsText(file);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
 
 const style = document.createElement('style');
 style.textContent = `
@@ -699,88 +834,4 @@ style.textContent = `
         border-bottom: none;
     }
 `;
-document.head.appendChild(style);
-
-function showToast(message, type = 'success') {
-    // Create toast container if it doesn't exist
-    let toastContainer = document.querySelector('.toast-container');
-    if (!toastContainer) {
-        toastContainer = document.createElement('div');
-        toastContainer.className = 'toast-container';
-        document.body.appendChild(toastContainer);
-    }
-
-    // Create new toast
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-
-    // Add toast to container
-    toastContainer.appendChild(toast);
-
-    // Calculate position based on existing toasts
-    const existingToasts = toastContainer.querySelectorAll('.toast');
-    const offset = (existingToasts.length - 1) * 60; // 60px spacing between toasts
-    toast.style.top = `${20 + offset}px`; // Start at 20px from top
-
-    // Trigger reflow and add show class
-    toast.offsetHeight;
-    toast.classList.add('show');
-
-    // Remove toast after 3 seconds
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            toast.remove();
-            // Reposition remaining toasts
-            const remainingToasts = toastContainer.querySelectorAll('.toast');
-            remainingToasts.forEach((t, index) => {
-                t.style.top = `${20 + (index * 60)}px`;
-            });
-            // Remove container if empty
-            if (remainingToasts.length === 0) {
-                toastContainer.remove();
-            }
-        }, 300);
-    }, 3000);
-}
-
-async function saveGeneratedCode() {
-    const code = document.getElementById('generatedCode').value;
-    if (!code) {
-        showToast('No code to save. Please generate code first.', 'error');
-        return;
-    }
-    
-    try {
-        // Create tests directory if it doesn't exist
-        await fetch('/create-tests-dir', {
-            method: 'POST'
-        });
-
-        // Save the code
-        const response = await fetch('/save-code', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                code: code,
-                filename: 'generated-test.spec.js'
-            })
-        });
-        
-        if (response.ok) {
-            showToast('Code saved successfully!');
-            // Enable Run Tests button after successful save
-            document.getElementById('runTestsButton').disabled = false;
-        } else {
-            const error = await response.text();
-            throw new Error(error);
-        }
-    } catch (error) {
-        console.error('Error saving code:', error);
-        showToast(`Error saving code: ${error.message}`, 'error');
-        document.getElementById('runTestsButton').disabled = true;
-    }
-} 
+document.head.appendChild(style); 
